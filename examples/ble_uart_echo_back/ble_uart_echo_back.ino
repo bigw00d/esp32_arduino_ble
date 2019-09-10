@@ -41,15 +41,14 @@ bool oldDeviceConnected = false;
 #define RCV_BUF_NUM 4
 #define RCV_BUF_SIZE 100
 int writePtr;
-int writeCount;
+int rcvBuffUsedNum;
 int readPtr;
 char rcvBuffs[RCV_BUF_NUM][RCV_BUF_SIZE];
-char *rcvBuff;
-byte rcvCnt;
+char *inputBuff;
 char *copySrcBuff;
-char rcvBuffCopy[RCV_BUF_SIZE];
+char copiedRcvBuff[RCV_BUF_SIZE];
 
-portMUX_TYPE timerMux = portMUX_INITIALIZER_UNLOCKED;
+portMUX_TYPE rcvBuffMux = portMUX_INITIALIZER_UNLOCKED;
 
 class MyServerCallbacks: public BLEServerCallbacks {
     void onConnect(BLEServer* pServer) {
@@ -61,57 +60,68 @@ class MyServerCallbacks: public BLEServerCallbacks {
     }
 };
 
-void inputReceivedChar(char *rcvStr, int length) {
-  boolean buffIsFull = false;
+void storeReceivedString(char *rcvStr, int length) {
+  int unEnteredSize = length;
+  int processedCharCount = 0;
 
-  for (int i = 0; i < length; i++)
-  {
-      char rcvData = rcvStr[i];
-      portENTER_CRITICAL_ISR(&timerMux);
-      if(writeCount >= RCV_BUF_NUM) {
-        buffIsFull = true;
-      }
-      portEXIT_CRITICAL_ISR(&timerMux);
-      
-      if (buffIsFull) {
-        ; // nothing to do
-      }
-      else if (rcvData > 31 && rcvData < 127) { //filter of displayable ascii data
-        if( rcvCnt < (RCV_BUF_SIZE-1) ) {
-          portENTER_CRITICAL_ISR(&timerMux);
-          rcvBuff[rcvCnt] = rcvData;
-          portEXIT_CRITICAL_ISR(&timerMux);
-          rcvCnt++;
-        }
-      }
-  }
-
-  if(rcvCnt > 0) {
-    rcvBuff[rcvCnt] = '\0';
-    rcvCnt = 0;
-    portENTER_CRITICAL_ISR(&timerMux);
-    writeCount++;
-    if (writeCount < RCV_BUF_NUM) {
-      writePtr = (writePtr + 1) % RCV_BUF_NUM;
-      rcvBuff = rcvBuffs[writePtr]; //write to next buffer
-    }
-    portEXIT_CRITICAL_ISR(&timerMux);
+  while( unEnteredSize > 0 ) {
+    processedCharCount += input2ReceivedBuff(&(rcvStr[processedCharCount]), unEnteredSize);
+    unEnteredSize = length - processedCharCount;
   }
 
 }
 
-int getReceivedString(char *inputBuffPtr) {
+int input2ReceivedBuff(char *rcvStr, int length) {
+  byte rcvCnt = 0;
+  int processedCount = 0;
+
+  portENTER_CRITICAL_ISR(&rcvBuffMux);
+  if(rcvBuffUsedNum >= RCV_BUF_NUM) {
+    return length; // all buff is used
+  }
+  portEXIT_CRITICAL_ISR(&rcvBuffMux);
+
+  for (int i = 0; i < length; i++)
+  {
+      char rcvData = rcvStr[i];
+      if( rcvCnt >= (RCV_BUF_SIZE-1) ) {
+        break; // rcvCnt is max(this buff is full)
+      }
+      else if (rcvData > 31 && rcvData < 127) { //filter of displayable ascii data
+        if( rcvCnt < (RCV_BUF_SIZE-1) ) {
+          inputBuff[rcvCnt] = rcvData;
+          rcvCnt++;
+        }
+      }
+      processedCount++;
+  }
+
+  if(rcvCnt > 0) {
+    inputBuff[rcvCnt] = '\0';
+    portENTER_CRITICAL_ISR(&rcvBuffMux);
+    rcvBuffUsedNum++;
+    if (rcvBuffUsedNum < RCV_BUF_NUM) {
+      writePtr = (writePtr + 1) % RCV_BUF_NUM;
+      inputBuff = rcvBuffs[writePtr]; //write to next buffer
+    }
+    portEXIT_CRITICAL_ISR(&rcvBuffMux);
+  }
+
+  return processedCount;
+}
+
+int getReceivedString(char *dstBuffPtr) {
   int len = 0;
   
-  portENTER_CRITICAL_ISR(&timerMux);
-  if (writeCount > 0) {
+  portENTER_CRITICAL_ISR(&rcvBuffMux);
+  if (rcvBuffUsedNum > 0) {
     copySrcBuff = rcvBuffs[readPtr];
     len = strlen(copySrcBuff) + 1;
-    strncpy(inputBuffPtr, copySrcBuff, len);
-    writeCount--;
+    strncpy(dstBuffPtr, copySrcBuff, len);
+    rcvBuffUsedNum--;
     readPtr = (readPtr + 1) % RCV_BUF_NUM;
   }
-  portEXIT_CRITICAL_ISR(&timerMux);
+  portEXIT_CRITICAL_ISR(&rcvBuffMux);
     
   return len;
 }
@@ -121,7 +131,7 @@ class MyCallbacks: public BLECharacteristicCallbacks {
       std::string rxValue = pCharacteristic->getValue();
 
       if (rxValue.length() > 0) {
-        inputReceivedChar((char*)rxValue.c_str(), rxValue.length());
+        storeReceivedString((char*)rxValue.c_str(), rxValue.length());
       }
     }
 };
@@ -132,12 +142,12 @@ void setup()
   Serial.begin(115200); // Debug Print
   WiFi.disconnect(true); //disable wifi
 
-  rcvBuff = rcvBuffs[writePtr];
-  writeCount = 0;
+  inputBuff = rcvBuffs[writePtr];
+  rcvBuffUsedNum = 0;
   writePtr = 0;
   readPtr = 0;
    
-   // create tasks
+  // create tasks
   xTaskCreatePinnedToCore(task0, "Task0", TaskStack4K, NULL, Priority2, NULL, TaskCore0);
 }
 
@@ -186,11 +196,11 @@ void task0(void* arg)
   {
 
     if (deviceConnected) {
-      int len = getReceivedString(rcvBuffCopy);
+      int len = getReceivedString(copiedRcvBuff);
       if (len > 0) {
         Serial.println("received string:");
-        Serial.println(rcvBuffCopy);
-        pTxCharacteristic->setValue(rcvBuffCopy);
+        Serial.println(copiedRcvBuff);
+        pTxCharacteristic->setValue(copiedRcvBuff);
         pTxCharacteristic->notify();          
       }
     }
