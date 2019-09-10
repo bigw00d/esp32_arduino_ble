@@ -142,6 +142,9 @@ void setup()
   Serial.begin(115200); // Debug Print
   WiFi.disconnect(true); //disable wifi
 
+//  Serial2.begin(115200, SERIAL_8N1, 0, 26); // EXT_IO( RX(G0), TX(G26) )
+  Serial2.begin(115200, SERIAL_8N1, 26, 27); //rx:G26, tx:G27
+
   inputBuff = rcvBuffs[writePtr];
   rcvBuffUsedNum = 0;
   writePtr = 0;
@@ -151,9 +154,35 @@ void setup()
   xTaskCreatePinnedToCore(task0, "Task0", TaskStack4K, NULL, Priority2, NULL, TaskCore0);
 }
 
+char sRcvBuff[RCV_BUF_SIZE]; //serial rx buffer
+boolean receiveSerialCR = false;
+byte rcvCnt = 0;
+
 void loop()
 {
-  delay(1);
+  char rcvData;
+
+  // receive uart data
+  while (Serial2.available()) {
+    rcvData = Serial2.read();
+    if (rcvData > 31 && rcvData < 127) { //filter of displayable ascii data
+      if( rcvCnt < (RCV_BUF_SIZE-1) ) {
+        sRcvBuff[rcvCnt] = rcvData;
+        rcvCnt++;
+      }
+    }
+    else if (rcvData == '\r') {
+      sRcvBuff[rcvCnt] = '\0';
+      receiveSerialCR = true;
+    }
+    delay(1);
+  }
+  if(receiveSerialCR) {
+    receiveSerialCR = false;
+    rcvCnt = 0;
+    Serial.println("uart received string:");
+    Serial.println(sRcvBuff);
+  }
 }
 
 void task0(void* arg)
