@@ -131,7 +131,7 @@ class MyCallbacks: public BLECharacteristicCallbacks {
       std::string rxValue = pCharacteristic->getValue();
 
       if (rxValue.length() > 0) {
-        storeReceivedString((char*)rxValue.c_str(), rxValue.length());
+//        storeReceivedString((char*)rxValue.c_str(), rxValue.length()); // echo back
       }
     }
 };
@@ -142,7 +142,6 @@ void setup()
   Serial.begin(115200); // Debug Print
   WiFi.disconnect(true); //disable wifi
 
-//  Serial2.begin(115200, SERIAL_8N1, 0, 26); // EXT_IO( RX(G0), TX(G26) )
   Serial2.begin(115200, SERIAL_8N1, 26, 27); //rx:G26, tx:G27
 
   inputBuff = rcvBuffs[writePtr];
@@ -179,6 +178,7 @@ void loop()
   }
   if(receiveSerialCR) {
     receiveSerialCR = false;
+    storeReceivedString(sRcvBuff, rcvCnt);
     rcvCnt = 0;
     Serial.println("uart received string:");
     Serial.println(sRcvBuff);
@@ -227,8 +227,8 @@ void task0(void* arg)
     if (deviceConnected) {
       int len = getReceivedString(copiedRcvBuff);
       if (len > 0) {
-        Serial.println("received string:");
-        Serial.println(copiedRcvBuff);
+//        Serial.println("received string:");
+//        Serial.println(copiedRcvBuff);
         pTxCharacteristic->setValue(copiedRcvBuff);
         pTxCharacteristic->notify();          
       }
