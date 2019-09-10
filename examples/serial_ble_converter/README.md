@@ -1,6 +1,6 @@
 # serial_ble_converter
 
-Converter from serial UART to BluetoothLE
+Converter from serial UART to Bluetooth LE UART
 
 ## Requirement
 
@@ -18,5 +18,5 @@ Converter from serial UART to BluetoothLE
 
 |   |Core   |Job  |
 |---|---|---|
-|MainTask  |core 0 (main loop)  |UART Receiver |
+|MainTask (main loop)  |core 0  |UART Receiver |
 |Task0 |core 0  |BLE Transmitter |
