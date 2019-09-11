@@ -25,9 +25,7 @@ With Application [nRF UART 2.0](https://play.google.com/store/apps/details?id=co
 |M5Stick-C (UART Receiver)  |ESP32 (UART Transmitter)  |
 |---|---|
 |IO26  |IO27  |
-|GND  |GND  |
-　
-
+|GND  |GND  |　
 #### BLE UART data
 <img src="./Demo.png" />
 　
